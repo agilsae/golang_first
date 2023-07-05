@@ -54,11 +54,17 @@ func Login(context *gin.Context) {
         return
     }
 
-    jwt, err := helper.GenerateJWT(user)
+    token, iat, eat, err := helper.GenerateJWT(user)
+
+
     if err != nil {
         context.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
 
-    context.JSON(http.StatusOK, gin.H{"jwt": jwt})
+    context.JSON(http.StatusOK, gin.H{
+        "jwt": token,
+        "iat": iat,
+        "eat": eat,
+    })
 }

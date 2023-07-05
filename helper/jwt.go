@@ -2,6 +2,7 @@ package helper
 
 import (
 	"diary-api/model"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,14 +16,38 @@ import (
 
 var privateKey = []byte(os.Getenv("JWT_PRIVATE_KEY"))
 
-func GenerateJWT(user model.User) (string, error) {
+
+func GenerateJWT(user model.User) (string, time.Time, time.Time, error) {
+    var tmIat time.Time
+    var tmEat time.Time
+
     tokenTTL, _ := strconv.Atoi(os.Getenv("TOKEN_TTL"))
     token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
         "id":  user.ID,
         "iat": time.Now().Unix(),
-        "eat": time.Now().Add(time.Second * time.Duration(tokenTTL)).Unix(),
+        "eat": time.Now().Add(time.Hour * time.Duration(tokenTTL)).Unix(),
     })
-    return token.SignedString(privateKey)
+
+    key, err := token.SignedString(privateKey)
+
+    claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return key, tmIat, tmEat, errors.New("couldn't parse claims")
+	}
+
+    fmt.Println("claims", claims)
+
+    switch iat := claims["iat"].(type) {
+    case int64:
+        tmIat = time.Unix(iat, 0)
+    }
+
+    switch eat := claims["eat"].(type) {
+    case int64:
+        tmEat = time.Unix(eat, 0)
+    }
+
+    return key, tmIat, tmEat, err
 }
 
 func ValidateJWT(context *gin.Context) error {
@@ -30,12 +55,34 @@ func ValidateJWT(context *gin.Context) error {
     if err != nil {
         return err
     }
-    _, ok := token.Claims.(jwt.MapClaims)
-    if ok && token.Valid {
-        return nil
+    // _, ok := token.Claims.(jwt.MapClaims)
+    // if ok && token.Valid {
+    //     return nil
+    // }
+    // return errors.New("invalid token provided")
+
+    claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return errors.New("couldn't parse claims")
+	}
+    var tm time.Time
+    switch eat := claims["eat"].(type) {
+    case float64:
+        tm = time.Unix(int64(eat), 0)
+    case json.Number:
+        v, _ := eat.Int64()
+        tm = time.Unix(v, 0)
     }
-    return errors.New("invalid token provided")
+
+    fmt.Println("eat", tm, "local tm", time.Unix(time.Now().Local().Unix(),0))
+	if tm.Unix() < time.Now().Local().Unix() {
+		return  errors.New("token expired")
+		
+	}
+
+	return nil
 }
+
 
 func CurrentUser(context *gin.Context) (model.User, error) {
     err := ValidateJWT(context)
